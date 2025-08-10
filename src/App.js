@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Send, FileText, MessageCircle, Loader } from 'lucide-react';
+import { Upload, Send, FileText, MessageCircle, Loader, ExternalLink } from 'lucide-react';
 import './App.css';
 
 const App = () => {
@@ -33,6 +33,14 @@ const App = () => {
     const url = URL.createObjectURL(selectedFile);
     setFileUrl(url);
 
+    // Add initial processing message
+    setMessages([{
+      type: 'system',
+      content: `📄 Processing "${selectedFile.name}"... Please wait while we analyze your PDF and prepare it for chat.`,
+      timestamp: new Date().toISOString(),
+      isProcessing: true
+    }]);
+
     // Upload and process the file
     const formData = new FormData();
     formData.append('pdf', selectedFile);
@@ -44,19 +52,46 @@ const App = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to upload file');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to upload file');
       }
 
       const result = await response.json();
       console.log('File processed successfully:', result);
+      
+      // Update with success message
       setMessages([{
         type: 'system',
-        content: `PDF "${selectedFile.name}" has been uploaded and processed. You can now ask questions about its content.`,
-        timestamp: new Date().toISOString()
+        content: `✅ PDF "${selectedFile.name}" has been successfully processed! 
+        
+📊 Document Summary:
+• ${result.totalPages} pages processed
+• ${result.chunksCreated} text sections created
+• Search method: ${result.searchMethod || 'Semantic + Keyword'}
+${result.warning ? `⚠️ ${result.warning}` : ''}
+
+You can now start asking questions about your document's content.`,
+        timestamp: new Date().toISOString(),
+        isProcessing: false
       }]);
     } catch (error) {
       console.error('Error uploading file:', error);
-      alert('Failed to upload and process the PDF. Please try again.');
+      
+      // Update with error message
+      setMessages([{
+        type: 'system',
+        content: `❌ Failed to process PDF: ${error.message}
+        
+Please try:
+• Uploading a smaller PDF file
+• Checking your internet connection  
+• Refreshing the page and trying again
+
+If the problem persists, the PDF might be too large or corrupted.`,
+        timestamp: new Date().toISOString(),
+        isProcessing: false,
+        isError: true
+      }]);
     } finally {
       setIsProcessing(false);
     }
@@ -220,9 +255,15 @@ const App = () => {
                 
                 <div className="messages-container">
                   {messages.map((message, index) => (
-                    <div key={index} className={`message ${message.type}`}>
+                    <div key={index} className={`message ${message.type} ${message.isError ? 'error' : ''} ${message.isProcessing ? 'processing' : ''}`}>
                       <div className="message-content">
-                        <p>{message.content}</p>
+                        {message.isProcessing && (
+                          <div className="processing-indicator">
+                            <Loader size={16} className="spinning" />
+                            <span className="processing-text">Processing...</span>
+                          </div>
+                        )}
+                        <p className={message.isProcessing ? 'processing-message' : ''}>{message.content}</p>
                         {message.citations && message.citations.length > 0 && (
                           <div className="citations">
                             <span className="citations-label">Sources:</span>
@@ -232,6 +273,7 @@ const App = () => {
                                 className="citation-btn"
                                 onClick={() => handleCitationClick(citation.page)}
                               >
+                                <ExternalLink size={12} />
                                 Page {citation.page}
                               </button>
                             ))}
@@ -260,7 +302,7 @@ const App = () => {
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyPress={handleKeyPress}
-                      placeholder="Ask anything about your PDF..."
+                      placeholder={isProcessing ? "Please wait while your PDF is being processed..." : "Ask anything about your PDF..."}
                       className="chat-input"
                       rows={1}
                       disabled={isLoading || isProcessing}
@@ -269,6 +311,7 @@ const App = () => {
                       onClick={handleSendMessage}
                       disabled={!inputValue.trim() || isLoading || isProcessing}
                       className="send-button"
+                      title={isProcessing ? "Please wait while your PDF is being processed" : "Send message"}
                     >
                       <Send size={20} />
                     </button>
